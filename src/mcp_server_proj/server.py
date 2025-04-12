@@ -1,19 +1,10 @@
 import asyncio
 from typing import List
-from pyproj import CRS, Transformer
 from mcp.server.models import InitializationOptions
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
 import mcp.server.stdio
-
-# 存储常用的坐标系统信息
-COMMON_CRS = {
-    "WGS84": "EPSG:4326",           # GPS全球定位系统
-    "WebMercator": "EPSG:3857",     # Web墨卡托投影
-    "CGCS2000": "EPSG:4490",        # 中国2000国家大地坐标系
-    "Beijing54": "EPSG:4214",       # 北京54坐标系
-    "Xian80": "EPSG:4610",          # 西安80坐标系
-}
+from .core.transformation import CoordinateTransformer
 
 # 创建服务器实例
 server = Server("mcp-coordinate-transform")
@@ -24,19 +15,17 @@ async def handle_list_tools() -> list[types.Tool]:
     return [
         types.Tool(
             name="transform-coordinates",
-            description="在不同坐标系统之间转换坐标",
+            description="在不同坐标系统之间转换坐标，支持EPSG、WKT和Proj格式的坐标系统",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "source_crs": {
                         "type": "string",
-                        "description": "源坐标系统（EPSG代码或常用坐标系名称）",
-                        "enum": list(COMMON_CRS.keys()) + list(COMMON_CRS.values()),
+                        "description": "源坐标系统，支持以下格式：\n1. EPSG代码 (如：EPSG:4326)\n2. WKT格式 (如：GEOGCS[\"WGS 84\",DATUM[...]])\n3. Proj格式 (如：+proj=longlat +datum=WGS84)",
                     },
                     "target_crs": {
                         "type": "string",
-                        "description": "目标坐标系统（EPSG代码或常用坐标系名称）",
-                        "enum": list(COMMON_CRS.keys()) + list(COMMON_CRS.values()),
+                        "description": "目标坐标系统，支持以下格式：\n1. EPSG代码 (如：EPSG:4326)\n2. WKT格式 (如：GEOGCS[\"WGS 84\",DATUM[...]])\n3. Proj格式 (如：+proj=longlat +datum=WGS84)",
                     },
                     "coordinates": {
                         "type": "array",
@@ -72,7 +61,7 @@ async def handle_call_tool(
     if name == "transform-coordinates":
         if not arguments:
             raise ValueError("缺少参数")
-        # 解析参数 目标坐标系 源坐标系 坐标列表
+        
         source_crs = arguments.get("source_crs")
         target_crs = arguments.get("target_crs")
         coordinates = arguments.get("coordinates")
@@ -80,29 +69,25 @@ async def handle_call_tool(
         if not all([source_crs, target_crs, coordinates]):
             raise ValueError("缺少必要的参数")
 
-        # 解析坐标系统
-        source_epsg = COMMON_CRS.get(source_crs, source_crs)
-        target_epsg = COMMON_CRS.get(target_crs, target_crs)
-
+        # 使用 CoordinateTransformer 进行转换
+        transformer = CoordinateTransformer()
         try:
-            # 创建坐标转换器
-            transformer = Transformer.from_crs(
-                source_epsg,
-                target_epsg,
-                always_xy=True  # 确保输入输出顺序为 (x,y)
-            )
+            # 直接使用输入的坐标系统字符串
+            transformer.set_source_crs(source_crs)
+            transformer.set_target_crs(target_crs)
+            transformer.initialize_transformer()
 
             # 转换所有坐标
             results = []
             for coord in coordinates:
                 x, y = coord["x"], coord["y"]
                 try:
-                    trans_x, trans_y = transformer.transform(x, y)
+                    trans_x, trans_y = transformer.transform_point(x, y)
                     results.append({
                         "original": {"x": x, "y": y},
                         "transformed": {"x": trans_x, "y": trans_y}
                     })
-                except Exception as e:
+                except ValueError as e:
                     results.append({
                         "original": {"x": x, "y": y},
                         "error": str(e)
@@ -120,22 +105,27 @@ async def handle_call_tool(
                         )
                 )
             ]
-        except Exception as e:
+        except ValueError as e:
             raise ValueError(f"坐标转换失败: {str(e)}")
 
     elif name == "list-supported-crs":
-        crs_info = []
-        for name, epsg in COMMON_CRS.items():
-            try:
-                crs = CRS.from_string(epsg)
-                crs_info.append(f"{name} ({epsg}):\n  {crs.name}")
-            except Exception:
-                crs_info.append(f"{name} ({epsg}): 无法获取详细信息")
-
         return [
             types.TextContent(
                 type="text",
-                text="支持的坐标系统:\n" + "\n".join(crs_info)
+                text="支持的坐标系统格式:\n\n" +
+                    "1. EPSG代码格式:\n" +
+                    "   - 示例: EPSG:4326 (WGS84)\n" +
+                    "   - 示例: EPSG:3857 (Web墨卡托投影)\n\n" +
+                    "2. WKT格式:\n" +
+                    "   - 地理坐标系示例:\n" +
+                    "     GEOGCS[\"WGS 84\",DATUM[\"WGS_1984\",SPHEROID[\"WGS 84\",6378137,298.257223563]],PRIMEM[\"Greenwich\",0],UNIT[\"degree\",0.0174532925199433]]\n\n" +
+                    "   - 投影坐标系示例:\n" +
+                    "     PROJCS[\"WGS 84 / UTM zone 50N\",GEOGCS[\"WGS 84\",...],PROJECTION[\"Transverse_Mercator\"],PARAMETER[\"latitude_of_origin\",0],PARAMETER[\"central_meridian\",117],UNIT[\"metre\",1]]\n\n" +
+                    "3. Proj格式:\n" +
+                    "   - WGS84示例:\n" +
+                    "     +proj=longlat +datum=WGS84 +no_defs +type=crs\n\n" +
+                    "   - Web墨卡托投影示例:\n" +
+                    "     +proj=merc +a=6378137 +b=6378137 +lat_ts=0 +lon_0=0 +x_0=0 +y_0=0 +k=1 +units=m +no_defs"
             )
         ]
 
