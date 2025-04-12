@@ -2,7 +2,7 @@
 
 MCP Server PROJ (cartographic projections and coordinate transformations)
 
-![](image\mcp_server_proj_transform.png)
+![](image/mcp_server_proj_transform.png)
 
 ### Tools
 
