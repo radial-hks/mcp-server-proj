@@ -46,7 +46,9 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
 
 <details>
   <summary>Development/Unpublished Servers Configuration</summary>
-  ```
+
+```json
+{
   "mcpServers": {
     "mcp-server-proj": {
       "command": "uv",
@@ -58,12 +60,15 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
       ]
     }
   }
-  ```
+}
+```
 </details>
 
 <details>
   <summary>Published Servers Configuration</summary>
-  ```
+
+```json
+{
   "mcpServers": {
     "mcp-server-proj": {
       "command": "uvx",
@@ -72,7 +77,8 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
       ]
     }
   }
-  ```
+}
+```
 </details>
 
 ### Debugging
