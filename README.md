@@ -1,83 +1,126 @@
 # MCP Server PROJ
 
-基于 MCP 协议的坐标系统转换服务器，支持多种坐标系统格式之间的转换。
+A Model Context Protocol (MCP) server for coordinate system transformations and map projections.
 
-## 功能特点
+## Features
 
-- 支持多种坐标系统格式：
-  - EPSG 代码
-  - WKT 格式
-  - Proj 字符串格式
-- 批量坐标转换
-- 简单易用的 API
-- 支持作为服务器运行或库形式使用
+- Multiple coordinate system format support:
+  - EPSG codes
+  - WKT (Well-Known Text)
+  - Proj string format
+- Batch coordinate transformation
+- Simple and intuitive API
+- Dual-mode operation: server or library
 
-## 安装
+## Installation
 
 ```bash
 pip install mcp-server-proj
 ```
 
-## 使用方法
+## Usage
 
-### 作为服务器运行
+### Server Mode
 
 ```bash
 mcp-server-proj
 ```
 
-### 作为库使用
+### Library Mode
 
 ```python
 from mcp_server_proj import CoordinateTransformer
 
-# 创建转换器实例
+# Create transformer instance
 transformer = CoordinateTransformer()
 
-# 设置源和目标坐标系
+# Set source and target coordinate systems
 transformer.set_source_crs("EPSG:4326")  # WGS84
-transformer.set_target_crs("EPSG:3857")  # Web墨卡托
+transformer.set_target_crs("EPSG:3857")  # Web Mercator
 
-# 初始化转换器
+# Initialize transformer
 transformer.initialize_transformer()
 
-# 转换坐标
+# Transform coordinates
 x, y = transformer.transform_point(116.3, 39.9)
-print(f"转换后的坐标: ({x}, {y})")
+print(f"Transformed coordinates: ({x}, {y})")
 ```
 
-## API 文档
+## API Documentation
 
 ### CoordinateTransformer
 
-主要的坐标转换类，提供以下方法：
+The main coordinate transformation class provides the following methods:
 
-- `set_source_crs(crs: str)`: 设置源坐标系
-- `set_target_crs(crs: str)`: 设置目标坐标系
-- `initialize_transformer()`: 初始化转换器
-- `transform_point(x: float, y: float) -> tuple[float, float]`: 转换单个点的坐标
+- `set_source_crs(crs: str)`: Set source coordinate system
+- `set_target_crs(crs: str)`: Set target coordinate system
+- `initialize_transformer()`: Initialize the transformer
+- `transform_point(x: float, y: float) -> tuple[float, float]`: Transform a single point
 
 ### Server
 
-MCP 协议服务器类，提供以下工具：
+The MCP protocol server provides two tools:
 
-- `transform-coordinates`: 坐标转换工具
-- `list-supported-crs`: 列出支持的坐标系统
+- `transform-coordinates`: Transform coordinates between different systems
+  ```json
+  {
+    "source_crs": "EPSG:4326",
+    "target_crs": "EPSG:3857",
+    "coordinates": [
+      {"x": 116.3, "y": 39.9}
+    ]
+  }
+  ```
 
-## 依赖
+- `list-supported-crs`: List all supported coordinate systems
+
+## Supported Coordinate Systems
+
+### 1. EPSG Codes
+Standard identifiers for coordinate reference systems:
+- EPSG:4326 - WGS84 Geographic
+- EPSG:3857 - Web Mercator
+- And many more...
+
+### 2. WKT Format
+Example of a geographic coordinate system:
+```
+GEOGCS["WGS 84",
+  DATUM["WGS_1984",
+    SPHEROID["WGS 84",6378137,298.257223563]],
+  PRIMEM["Greenwich",0],
+  UNIT["degree",0.0174532925199433]]
+```
+
+### 3. Proj Format
+Example of WGS84:
+```
++proj=longlat +datum=WGS84 +no_defs +type=crs
+```
+
+## Development
+
+### Debugging
+For the best debugging experience, use the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+
+```bash
+npx @modelcontextprotocol/inspector mcp-server-proj
+```
+
+## Dependencies
 
 - Python >= 3.12
 - mcp >= 1.3.0
 - pyproj >= 3.0.0
 
-## 许可证
+## License
 
 MIT
 
-## 作者
+## Author
 
 radial-hks (radialjiajie@gmail.com)
 
-## 贡献
+## Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Issues and Pull Requests are welcome!
