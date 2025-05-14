@@ -1,9 +1,13 @@
-from . import server
-import asyncio
+"""
+MCP Server PROJ - 坐标系统转换服务器
 
-def main():
-    """Main entry point for the package."""
-    asyncio.run(server.main())
+这个包提供了一个基于 MCP 协议的坐标系统转换服务器，支持多种坐标系统格式之间的转换。
+"""
 
-# Optionally expose other important items at package level
-__all__ = ['main', 'server']
+__version__ = "0.1.0"
+__author__ = "radial-hks"
+
+from .server import Server, main
+from .core.transformation import CoordinateTransformer
+
+__all__ = ['Server', 'main', 'CoordinateTransformer']
