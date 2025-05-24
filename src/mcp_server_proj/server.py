@@ -1,6 +1,7 @@
 import asyncio
-import json # Added for GeoJSON parsing
-from typing import List, Dict, Any # Added Dict and Any
+import json # Will be used for initial load, then geojson library
+import geojson # Added for GeoJSON object manipulation
+from typing import List, Dict, Any # Dict, Any might be less needed after geojson lib usage
 from mcp.server.models import InitializationOptions
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
@@ -164,9 +165,19 @@ async def handle_call_tool(
             raise ValueError("缺少必要的参数: source_crs, target_crs, 或 geojson_content (Missing required arguments: source_crs, target_crs, or geojson_content)")
 
         try:
-            geojson_data: Dict[str, Any] = json.loads(geojson_content_str)
+            # First, parse the string as a Python dictionary
+            geojson_data_dict: Dict[str, Any] = json.loads(geojson_content_str)
+            # Then, convert the dictionary to a geojson object
+            # Using default=None to explicitly handle cases where it's not a known GeoJSON type
+            # or use specific constructors if you expect certain types.
+            # geojson.GeoJSON.to_instance is a good general approach.
+            geojson_obj = geojson.GeoJSON.to_instance(geojson_data_dict)
+
         except json.JSONDecodeError as e:
-            raise ValueError(f"无效的GeoJSON内容: {str(e)} (Invalid GeoJSON content: {str(e)})")
+            raise ValueError(f"无效的GeoJSON内容: JSON格式错误 - {str(e)} (Invalid GeoJSON content: JSON format error - {str(e)})")
+        except (TypeError, ValueError, KeyError, geojson.errors.GeoJSONError) as e: # Catch errors from geojson.GeoJSON.to_instance
+            raise ValueError(f"无效的GeoJSON内容: 结构或内容不符合GeoJSON规范 - {str(e)} (Invalid GeoJSON content: Structure or content does not conform to GeoJSON specification - {str(e)})")
+
 
         transformer = CoordinateTransformer()
         try:
@@ -174,45 +185,52 @@ async def handle_call_tool(
             transformer.set_target_crs(target_crs)
             transformer.initialize_transformer()
 
-            geojson_type = geojson_data.get("type")
+            if not hasattr(geojson_obj, 'type'):
+                raise ValueError("无效的GeoJSON对象: 缺少 'type' 属性 (Invalid GeoJSON object: missing 'type' attribute)")
+
+            geojson_type = geojson_obj.type
 
             if geojson_type == "FeatureCollection":
-                if "features" not in geojson_data or not isinstance(geojson_data["features"], list):
-                    raise ValueError("无效的FeatureCollection: 缺少或无效的 'features' 列表 (Invalid FeatureCollection: missing or invalid 'features' list)")
-                
-                for i, feature in enumerate(geojson_data["features"]):
-                    if not isinstance(feature, dict) or "geometry" not in feature:
-                        raise ValueError(f"FeatureCollection中的第 {i+1} 个要素无效: 不是字典或缺少 'geometry' (Invalid feature at index {i} in FeatureCollection: not a dict or missing 'geometry')")
-                    if feature["geometry"] is not None: # Allow null geometries
-                         try:
-                            feature["geometry"] = transformer.transform_geojson_feature_geometry(feature["geometry"])
-                         except Exception as e:
-                            # Add information about which feature failed
+                if not isinstance(geojson_obj, geojson.FeatureCollection):
+                     raise ValueError("类型声称是FeatureCollection但对象结构不匹配 (Type claim is FeatureCollection but object structure mismatch)")
+                for i, feature in enumerate(geojson_obj.features):
+                    if not isinstance(feature, geojson.Feature):
+                         raise ValueError(f"FeatureCollection中的第 {i+1} 个要素无效: 不是有效的GeoJSON Feature对象 (Invalid feature at index {i} in FeatureCollection: not a valid GeoJSON Feature object)")
+                    if feature.geometry:  # Check if geometry is not None
+                        try:
+                            # feature.geometry is already a geojson geometry object
+                            transformed_geometry = transformer.transform_geojson_feature_geometry(feature.geometry)
+                            feature.geometry = transformed_geometry
+                        except Exception as e:
                             raise ValueError(f"转换FeatureCollection中第 {i+1} 个要素的几何对象时出错: {str(e)} (Error transforming geometry for feature at index {i}: {str(e)})")
-
+            
             elif geojson_type == "Feature":
-                if "geometry" not in geojson_data:
-                    raise ValueError("无效的Feature: 缺少 'geometry' (Invalid Feature: missing 'geometry')")
-                if geojson_data["geometry"] is not None: # Allow null geometries
+                if not isinstance(geojson_obj, geojson.Feature):
+                    raise ValueError("类型声称是Feature但对象结构不匹配 (Type claim is Feature but object structure mismatch)")
+                if geojson_obj.geometry: # Check if geometry is not None
                     try:
-                        geojson_data["geometry"] = transformer.transform_geojson_feature_geometry(geojson_data["geometry"])
+                        transformed_geometry = transformer.transform_geojson_feature_geometry(geojson_obj.geometry)
+                        geojson_obj.geometry = transformed_geometry
                     except Exception as e:
                         raise ValueError(f"转换Feature的几何对象时出错: {str(e)} (Error transforming geometry for Feature: {str(e)})")
-            
-            elif geojson_type in ["Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon"]: # Removed "GeometryCollection" as it's not directly transformed by the previous method's main cases
-                # For individual geometry types, transform the whole geojson_data object
-                # as it is the geometry itself.
+
+            elif isinstance(geojson_obj, geojson.geometry.Geometry):
+                # This handles Point, LineString, Polygon, MultiPoint, MultiLineString, MultiPolygon, and GeometryCollection
+                # if transform_geojson_feature_geometry supports them.
+                # The refactored transform_geojson_feature_geometry itself will raise TypeError for unsupported types passed to it.
                 try:
-                    geojson_data = transformer.transform_geojson_feature_geometry(geojson_data)
+                    geojson_obj = transformer.transform_geojson_feature_geometry(geojson_obj)
+                except TypeError as e: # Catch TypeError from the transformation method if type is not directly transformable by map_tuples
+                    raise ValueError(f"转换几何对象 '{geojson_type}' 时出错: {str(e)} (Error transforming geometry type '{geojson_type}': {str(e)})")
                 except Exception as e:
                     raise ValueError(f"转换几何对象 '{geojson_type}' 时出错: {str(e)} (Error transforming geometry type '{geojson_type}': {str(e)})")
-            elif geojson_data.get("type") == "GeometryCollection":
-                 raise ValueError(f"不支持直接转换 'GeometryCollection' 类型的顶层GeoJSON对象。请在Feature或FeatureCollection中使用。 (Direct transformation of top-level 'GeometryCollection' is not supported. Please use it within a Feature or FeatureCollection.)")
             else:
-                supported_types = ["FeatureCollection", "Feature", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon"]
-                raise ValueError(f"不支持的GeoJSON类型: '{geojson_type}'。支持的类型为: {', '.join(supported_types)} (Unsupported GeoJSON type: '{geojson_type}'. Supported types are: {', '.join(supported_types)})")
+                # This case should ideally be caught by geojson.GeoJSON.to_instance or the isinstance checks above
+                supported_types = ["FeatureCollection", "Feature", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"]
+                raise ValueError(f"不支持或无效的顶层GeoJSON对象类型: '{geojson_type}'. 支持的类型为: {', '.join(supported_types)} (Unsupported or invalid top-level GeoJSON object type: '{geojson_type}'. Supported types are: {', '.join(supported_types)})")
 
-            transformed_geojson_str = json.dumps(geojson_data, indent=2) # indent for readability
+            # Serialize the transformed geojson object back to a string
+            transformed_geojson_str = geojson.dumps(geojson_obj, indent=2)
 
             return [
                 types.TextContent(
